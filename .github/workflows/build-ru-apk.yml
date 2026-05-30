@@ -1,0 +1,61 @@
+name: Build RU APK
+
+# Собирает установочный APK русской версии.
+# Запуск: вкладка Actions -> "Build RU APK" -> "Run workflow" (или автоматически при push).
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "**" ]
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  build-apk:
+    name: Build Android APK (RU)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.2'
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Генерируем одноразовый keystore прямо в раннере, чтобы получить
+      # подписанный (а значит устанавливаемый) release-APK без секретов репозитория.
+      - name: Generate signing keystore
+        working-directory: android
+        run: |
+          keytool -genkeypair -v \
+            -keystore app/luci_mobile_keystore.jks \
+            -alias luci \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass luci_mobile -keypass luci_mobile \
+            -dname "CN=LuCI Mobile RU, OU=Build, O=Self, L=NA, S=NA, C=NA"
+          cat > key.properties <<EOF
+          storePassword=luci_mobile
+          keyPassword=luci_mobile
+          keyAlias=luci
+          storeFile=luci_mobile_keystore.jks
+          EOF
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-mobile-ru-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
